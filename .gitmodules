@@ -1,0 +1,3 @@
+[submodule "longestfirst-tokenization"]
+	path = longestfirst-tokenization
+	url = https://github.com/spyysalo/longestfirst-tokenization.git
