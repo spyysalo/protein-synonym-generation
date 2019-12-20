@@ -17,6 +17,13 @@ python3 generate_synonyms.py synonyms.tsv example-data/labeledseq.tsv \
     > generated.tsv
 ```
 
+with CTRL sequence
+
+```
+python3 generate_synonyms.py synonyms.tsv example-data/labeledctrlseq.txt
+    > generatedctrl.tsv
+```
+
 ## Data
 
 The file `example-data/prot2ipr.tsv` is a three-column tab-separated values

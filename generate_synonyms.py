@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+import re
 import random
 
 from logging import info, warning
@@ -18,6 +19,7 @@ SEQUENCE_CHARS = 'ABCDEFGHIKLMNOPQRSTUVWXYZ'
 def argparser():
     from argparse import ArgumentParser
     ap = ArgumentParser()
+    ap.add_argument('--seed', default=None, type=int, help='random seed')
     ap.add_argument('synonyms', help='get_synonyms.py output')
     ap.add_argument('file', nargs='+')
     return ap
@@ -91,15 +93,12 @@ def make_tokenizer(synonym_map):
 
 
 def generate_synonyms(fn, synonym_map, tokenize, options):
+    split_re = re.compile('(\W+)')
     with open(fn) as f:
         for ln, l in enumerate(f, start=1):
-            l = l.rstrip('\n')
-            fields = l.split('\t')
-            if len(fields) != 2:
-                raise ValueError('expected 2 tab-separated fields, got {}'
-                                 ' on line {} in {}: {}'.format(
-                                     len(fields), ln, fn, l))
-            labels, sequence = fields
+            l = l.rstrip()
+            fields = split_re.split(l)
+            start, sequence = fields[:-1], fields[-1]
             tokenized = tokenize(sequence)
             if not any (len(c) > 1 for c in tokenized):
                 info('No candidates found for {}'.format(sequence))
@@ -109,16 +108,17 @@ def generate_synonyms(fn, synonym_map, tokenize, options):
                 if len(t) == 1:
                     generated.append(t)
                 else:
-                    candidates = [c for c in synonym_map[t] if c != t]
+                    candidates = sorted([c for c in synonym_map[t] if c != t])
                     assert candidates, 'internal error'
                     generated.append(random.choice(candidates))
             generated = ''.join(generated)
             assert generated != sequence, 'internal error'
-            print('{}\t{}'.format(labels, generated))
+            print('{}{}'.format(''.join(start), generated))
 
 
 def main(argv):
     args = argparser().parse_args(argv[1:])
+    random.seed(args.seed)
     synonym_sets = read_synonym_sets(args.synonyms, args)
     synonym_map = make_synonym_map(synonym_sets)
     tokenize = make_tokenizer(synonym_map)
