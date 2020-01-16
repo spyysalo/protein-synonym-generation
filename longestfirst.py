@@ -269,6 +269,92 @@ class TrieTokenizer(object):
         return trie
 
 
+class AhocorasickTokenizer2(object):
+    def __init__(self, vocab):
+        self.vocab = vocab
+        self.automaton = self.build_automaton(vocab)
+        self._matches = None
+
+    def _init_matches(self, text):
+        # Create a list of lists containing the length of matching
+        # vocabulary items for each position of the string, starting with
+        # a sentry zero value and sorted by increasing length.
+        self._matches = [[0] for _ in range(len(text))]
+        for end, length in self.automaton.iter(text):
+            end += 1    # ahocorasick end is inclusive
+            start = end - length
+            self._matches[start].append(length)
+        for a in self._matches:
+            a.sort()
+
+    def _longest_match(self, text, start, end):
+        longest, longest_start = 0, None
+        for i in range(start, end):
+            if self._matches[i][-1] <= longest:
+                continue
+            while i + self._matches[i][-1] > end:
+                self._matches[i].pop()    # clear too long
+            if self._matches[i][-1] > longest:
+                longest, longest_start = self._matches[i][-1], i
+        if not longest:
+            raise NoMatch('failed to match "{}", {}:{} in "{}"'.format(
+                text[start:end], start, end, text))
+        match_start, match_end = longest_start, longest_start + longest
+        assert match_start >= start and match_end <= end, \
+            '{}:{} for {}:{}'.format(match_start, match_end, start, end)
+        return match_start, match_end
+
+    def _longest_match2(self, text, start, end):
+        longest, longest_start = 0, None
+        for match_end, length in self.automaton.iter(text, start, end):
+            match_end += 1    # ahocorasick end is inclusive
+            match_start = match_end - length
+            if length > longest:
+                longest, longest_start = length, match_start
+        if not longest:
+            raise NoMatch()
+        return longest_start, longest_start+longest
+
+    def _tokenize_recursive(self, text, start, end):
+        if start == end:
+            return []
+        try:
+            match_start, match_end = self._longest_match(text, start, end)
+            return (self._tokenize_recursive(text, start, match_start) +
+                    [text[match_start:match_end]] +
+                    self._tokenize_recursive(text, match_end, end))
+        except NoMatch:
+            # No matches, tokenize into single characters
+            return list(text[start:end])
+
+    def tokenize(self, text):
+        self._init_matches(text)
+        tokens = self._tokenize_recursive(text, 0, len(text))
+        assert ''.join(tokens) == text, 'internal error'
+        return tokens
+
+    @classmethod
+    def load(cls, vocab_path):
+        vocab = _load_vocab(vocab_path)
+        return cls(vocab)
+
+    @staticmethod
+    def build_automaton(vocab):
+        # Build Aho-Corasick matching automaton for vocabulary items
+        from ahocorasick import Automaton
+        start_time = datetime.now()
+        info('start building automaton at {}'.format(
+            start_time.strftime("%H:%M:%S")))
+        a = Automaton()
+        for v in vocab:
+            a.add_word(v, len(v))
+        a.make_automaton()
+        end_time = datetime.now()
+        info('finish building automata at {} (delta {})'.format(
+            end_time.strftime("%H:%M:%S"), end_time-start_time))
+        return a
+
+
 def main(argv):
     args = argparser().parse_args(argv[1:])
     if args.verbose:

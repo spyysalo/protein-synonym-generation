@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from logging import info, warning, debug
 
-from longestfirst import AhocorasickTokenizer, TrieTokenizer
+from longestfirst import AhocorasickTokenizer2, TrieTokenizer
 
 
 # Characters expected in input protein sequences
@@ -77,7 +77,7 @@ def make_tokenizer(synonym_map, options):
     info('created vocab of {} entries, word lengths {}-{}'.format(
         len(vocab), min_len, max_len))
     if not options.trie:
-        tokenizer = AhocorasickTokenizer(vocab)
+        tokenizer = AhocorasickTokenizer2(vocab)
     else:
         tokenizer = TrieTokenizer(list(chars), vocab)
     def tokenize(sequence):
