@@ -5,13 +5,11 @@ import re
 import random
 import logging
 
+from datetime import datetime
 from logging import info, warning, debug
 
-from longestfirst import Tokenizer
+from longestfirst import AhocorasickTokenizer, TrieTokenizer
 
-
-# Special character used to mark beginning of string.
-BOS_MARKER = '*'
 
 # Characters expected in input protein sequences
 SEQUENCE_CHARS = 'ABCDEFGHIKLMNOPQRSTUVWXYZ'
@@ -21,6 +19,7 @@ def argparser():
     from argparse import ArgumentParser
     ap = ArgumentParser()
     ap.add_argument('--verbose', default=False, action='store_true')
+    ap.add_argument('--trie', default=False, action='store_true')
     ap.add_argument('--seed', default=None, type=int, help='random seed')
     ap.add_argument('synonyms', help='get_synonyms.py output')
     ap.add_argument('file', nargs='+')
@@ -66,35 +65,23 @@ def make_synonym_map(synonym_sets):
     return synonym_map
 
 
-def make_tokenizer(synonym_map):
-    # This is a bit of a hack: we're reusing code for longest-first wordpiece
-    # tokenization to find candidates for synonym replacement, so make a
-    # vocabulary of all such candidates plus individual characters as
-    # continuation wordpieces (prefixed with "##") and add a special sentry
-    # character to both vocab and the start of each sequence so that
-    # continuation word pieces can match at the (actual) start of sequences.
-    # Then any token longer than a single character is in the synonym_map.
+def make_tokenizer(synonym_map, options):
     words = synonym_map.keys()
     info('found {} "words": {}...'.format(len(words), list(words)[:5]))
     chars = set(c for s in words for c in s)
     chars.update(SEQUENCE_CHARS)
     info('found {} characters: {}'.format(len(chars), chars))
-    vocab = set(
-        [BOS_MARKER] +
-        ['##'+w for w in words] +
-        ['##'+c for c in chars]
-    )
+    vocab = set(list(words) + list(chars))
     max_len = max(len(w) for w in words)
     min_len = min(len(w) for w in words)
     info('created vocab of {} entries, word lengths {}-{}'.format(
         len(vocab), min_len, max_len))
-    try:
-        tokenizer = Tokenizer(vocab)
-    except:
-        tokenizer = Tokenizer(list(chars)+[BOS_MARKER], vocab)
+    if not options.trie:
+        tokenizer = AhocorasickTokenizer(vocab)
+    else:
+        tokenizer = TrieTokenizer(list(chars), vocab)
     def tokenize(sequence):
-        tokenized = tokenizer.tokenize(BOS_MARKER + sequence)
-        tokenized = [t[2:] for t in tokenized[1:]]
+        tokenized = tokenizer.tokenize(sequence)
         assert ''.join(tokenized) == sequence, 'internal error'
         return tokenized
     return tokenize
@@ -103,6 +90,9 @@ def make_tokenizer(synonym_map):
 def generate_synonyms(fn, synonym_map, tokenize, options):
     split_re = re.compile('(\W+)')
     with open(fn) as f:
+        start_time = datetime.now()
+        info('start generating for {} at {}'.format(
+            fn, start_time.strftime("%H:%M:%S")))
         for ln, l in enumerate(f, start=1):
             l = l.rstrip()
             fields = split_re.split(l)
@@ -122,6 +112,9 @@ def generate_synonyms(fn, synonym_map, tokenize, options):
             generated = ''.join(generated)
             assert generated != sequence, 'internal error'
             print('{}{}'.format(''.join(start), generated))
+        end_time = datetime.now()
+        info('finish generating for {} at {} (delta {})'.format(
+            fn, end_time.strftime("%H:%M:%S"), end_time-start_time))
 
 
 def main(argv):
@@ -131,7 +124,7 @@ def main(argv):
     random.seed(args.seed)
     synonym_sets = read_synonym_sets(args.synonyms, args)
     synonym_map = make_synonym_map(synonym_sets)
-    tokenize = make_tokenizer(synonym_map)
+    tokenize = make_tokenizer(synonym_map, args)
     for fn in args.file:
         generate_synonyms(fn, synonym_map, tokenize, args)
     return 0
