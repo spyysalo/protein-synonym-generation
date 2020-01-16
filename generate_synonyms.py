@@ -3,8 +3,9 @@
 import sys
 import re
 import random
+import logging
 
-from logging import info, warning
+from logging import info, warning, debug
 
 from longestfirst import Tokenizer
 
@@ -19,6 +20,7 @@ SEQUENCE_CHARS = 'ABCDEFGHIKLMNOPQRSTUVWXYZ'
 def argparser():
     from argparse import ArgumentParser
     ap = ArgumentParser()
+    ap.add_argument('--verbose', default=False, action='store_true')
     ap.add_argument('--seed', default=None, type=int, help='random seed')
     ap.add_argument('synonyms', help='get_synonyms.py output')
     ap.add_argument('file', nargs='+')
@@ -52,12 +54,12 @@ def make_synonym_map(synonym_sets):
         else:
             # TODO: this can "merge" sets with themselves. This is a
             # no-op, but wasted effort.
-            info('merging synonym sets for {}'.format(known_synonyms))
+            debug('merging synonym sets for {}'.format(known_synonyms))
             synset = synonym_map[known_synonyms[0]]    # merge to first
             for s in known_synonyms[1:]:
                 synset.update(synonym_map[s])
                 synonym_map[s] = synset
-            info('merged synonym set: {}'.format(synset))
+            debug('merged synonym set: {}'.format(synset))
         synset.update(synonyms)
         for s in synonyms:
             synonym_map[s] = synset
@@ -82,8 +84,14 @@ def make_tokenizer(synonym_map):
         ['##'+w for w in words] +
         ['##'+c for c in chars]
     )
-    info('created vocab of {} entries'.format(len(vocab)))
-    tokenizer = Tokenizer(vocab)
+    max_len = max(len(w) for w in words)
+    min_len = min(len(w) for w in words)
+    info('created vocab of {} entries, word lengths {}-{}'.format(
+        len(vocab), min_len, max_len))
+    try:
+        tokenizer = Tokenizer(vocab)
+    except:
+        tokenizer = Tokenizer(list(chars)+[BOS_MARKER], vocab)
     def tokenize(sequence):
         tokenized = tokenizer.tokenize(BOS_MARKER + sequence)
         tokenized = [t[2:] for t in tokenized[1:]]
@@ -118,6 +126,8 @@ def generate_synonyms(fn, synonym_map, tokenize, options):
 
 def main(argv):
     args = argparser().parse_args(argv[1:])
+    if args.verbose:
+        logging.getLogger().setLevel(logging.INFO)
     random.seed(args.seed)
     synonym_sets = read_synonym_sets(args.synonyms, args)
     synonym_map = make_synonym_map(synonym_sets)
