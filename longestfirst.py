@@ -90,15 +90,20 @@ class AhocorasickTokenizer(object):
             try:
                 m_start, m_end, length = self._longest_match(
                     text, span.max_len, span.start, span.end)
+                # length-1 for first part b/c match is leftmost of longest
+                before = make_span(span.start, m_start, length-1, False)
+                match = make_span(m_start, m_end, None, True)
+                after = make_span(m_end, span.end, length, False)
+                spans[i:i+1] = before + match + after
+                first_untokenized = i
             except NoMatch:
-                raise ValueError('failed to tokenize: {}'.format(
-                    text[span.start:span.end]))
-            # length-1 for first part b/c match is leftmost of longest
-            before = make_span(span.start, m_start, length-1, False)
-            match = make_span(m_start, m_end, None, True)
-            after = make_span(m_end, span.end, length, False)
-            spans[i:i+1] = before + match + after
-            first_untokenized = i
+                # No matches, tokenize into single characters
+                chars = [
+                    Span(j, j+1, None, True)
+                    for j in range(span.start, span.end)
+                ]
+                spans[i:i+1] = chars
+                first_untokenized = i+len(chars)
         return [text[s.start:s.end] for s in spans]
 
     def _tokenize_recursive(self, text, max_len, start, end):
@@ -112,7 +117,8 @@ class AhocorasickTokenizer(object):
                     [text[match_start:match_end]] +
                     self._tokenize_recursive(text, length, match_end, end))
         except NoMatch:
-            raise ValueError('failed to tokenize: {}'.format(text[start:end]))
+            # No matches, tokenize into single characters
+            return list(text[start:end])
 
     def tokenize(self, text):
         tokens = self._tokenize_iterative(text, self.max_len, 0, len(text))
@@ -166,46 +172,32 @@ class TrieTokenizer(object):
             if p is not None:
                 self._longest[i] = len(p)
 
-    def _update_longest(self, text, start, end):
-        # Update self._longest for range [start:end] to contain the
-        # length of the longest possible match for each position,
-        # assuring that no match goes past the end position.
-        for i in range(start, end):
-            if i + self._longest[i] > end:
-                p = self.trie.longest_prefix(text[i:end]).key
-                if p is not None:
-                    self._longest[i] = len(p)
-
-    def _get_longest(self, text, start, end):
+    def _longest_match(self, text, start, end):
         # Return longest possible match in text[start:end]. Also update
         # self._longest for range [start:end] to contain the length of
         # the longest possible match for each position, assuring that
         # no match goes past the end position.
         max_pos, max_len = None, None
         for i in range(start, end):
-            if i + self._longest[i] > end:
+            longest = self._longest[i]
+            if not longest:
+                continue    # no matches
+            if i + longest > end:
                 p = self.trie.longest_prefix(text[i:end]).key
-                if p is not None:
-                    self._longest[i] = len(p)
-            if max_len is None or self._longest[i] > max_len:
-                max_pos, max_len = i, self._longest[i]
-        return max_pos, max_pos + max_len
-
-    def _longest_match(self, text, start, end):
-        # Quick path for a simple common case
-        if end == start + 1 and self._longest[start] == 1:
-            return start, end
-        match_start, match_end = self._get_longest(text, start, end)
-        if match_start is None:
+                longest = len(p) if p is not None else None
+                self._longest[i] = longest
+            if longest and (max_len is None or longest > max_len):
+                max_pos, max_len = i, longest
+        if max_pos is None:
             raise NoMatch('failed to match "{}", {}:{} in "{}"'.format(
                 text[start:end], start, end, text))
+        match_start, match_end = max_pos, max_pos + max_len
         assert match_start >= start and match_end <= end, '{}:{} for {}:{}'.format(match_start, match_end, start, end)
         return match_start, match_end
 
     def _tokenize_iterative(self, text, start, end):
         if start == end:
             return []
-        self._init_longest(text)
         # Maintain a list of untokenized and tokenized text spans and
         # tokenize the first untokenized span until all are tokenized.
         make_span = lambda s, e, t: [] if s == e else [Span(s, e, None, t)]
@@ -218,13 +210,22 @@ class TrieTokenizer(object):
             else:
                 break    # done, all tokenized
             span = spans[i]
-            m_start, m_end = self._longest_match(
-                text, span.start, span.end)
-            before = make_span(span.start, m_start, False)
-            match = make_span(m_start, m_end, True)
-            after = make_span(m_end, span.end, False)
-            spans[i:i+1] = before + match + after
-            first_untokenized = i
+            try:
+                m_start, m_end = self._longest_match(
+                    text, span.start, span.end)
+                before = make_span(span.start, m_start, False)
+                match = make_span(m_start, m_end, True)
+                after = make_span(m_end, span.end, False)
+                spans[i:i+1] = before + match + after
+                first_untokenized = i
+            except NoMatch:
+                # No matches, tokenize into single characters
+                chars = [
+                    Span(j, j+1, None, True)
+                    for j in range(span.start, span.end)
+                ]
+                spans[i:i+1] = chars
+                first_untokenized = i+len(chars)
         return [text[s.start:s.end] for s in spans]
 
     def _tokenize_recursive(self, text, start, end):
@@ -236,9 +237,11 @@ class TrieTokenizer(object):
                     [text[match_start:match_end]] +
                     self._tokenize_recursive(text, match_end, end))
         except NoMatch:
-            raise ValueError('failed to tokenize: {}'.format(text[start:end]))
+            # No matches, tokenize into single characters
+            return list(text[start:end])
 
     def tokenize(self, text):
+        self._init_longest(text)
         tokens = self._tokenize_iterative(text, 0, len(text))
         assert ''.join(tokens) == text, 'internal error'
         return tokens

@@ -71,7 +71,7 @@ def make_tokenizer(synonym_map, options):
     chars = set(c for s in words for c in s)
     chars.update(SEQUENCE_CHARS)
     info('found {} characters: {}'.format(len(chars), chars))
-    vocab = set(list(words) + list(chars))
+    vocab = set(words)
     max_len = max(len(w) for w in words)
     min_len = min(len(w) for w in words)
     info('created vocab of {} entries, word lengths {}-{}'.format(
